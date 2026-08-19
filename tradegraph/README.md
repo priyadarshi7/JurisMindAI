@@ -77,6 +77,31 @@ Central Acts, curated judgments) is tracked as open work — a question
 outside what's ingested will correctly come back `insufficient_evidence`
 rather than a hallucinated answer, per docs/06's evidence-gating design.
 
+### Observability
+
+Metrics are real, not a stub: the API and reranker each serve their own
+`GET /metrics`, and the worker opens a dedicated one on
+`settings.prometheus_metrics_port` (default `9464`) since a Celery worker
+has no request/response cycle to hang a route off. Prometheus (in Docker)
+reaches the host-run API/worker via `host.docker.internal` and the
+containerized reranker via its Compose service name — see
+`ops/prometheus/prometheus.yml`. Grafana auto-provisions both the
+Prometheus datasource and the `JurisMindAI Overview` dashboard on
+`docker compose up` — no manual click-through setup.
+
+- Prometheus: [localhost:9090](http://localhost:9090) (Status → Targets to
+  confirm all three scrape jobs are `up`)
+- Grafana: [localhost:3001](http://localhost:3001) (default `admin`/`admin`,
+  or `GRAFANA_ADMIN_PASSWORD` if set)
+
+Covers every D-31 metric family this codebase can honestly produce today —
+API request rate/latency, retrieval/reranker latency, per-node LLM
+tokens/latency/imputed cost, Ollama concurrency, worker job duration and
+queue depth. Two families are deliberately not faked: `cache_hit_rate` (no
+cache layer exists yet — `src/cache/` is a stub) and MCP tool metrics (no
+MCP server exists yet) — both would be permanent fabricated zeros, not real
+signal.
+
 ## Development
 
 ```sh
@@ -123,7 +148,8 @@ src/
   models/       Shared data models incl. run manifest       (live)
   cache/        Redis cache-layer helpers                   (V4)
   evaluation/   Benchmark dataset + evaluation harness       (V1 start, V5 complete)
-  observability/  LangSmith + OTel + Prometheus wiring       (V1 start, V4 complete)
+  observability/  Prometheus metric definitions (live) — LangSmith/OTel
+                tracing is still V4 work, see "Observability" above
   core/         Settings, Celery app, cross-cutting config   (live)
 migrations/     Alembic — live schema, including the legal-corpus tables
                 (documents/court/citation metadata, legal_sections)
@@ -188,3 +214,6 @@ it there first.
 - **GPU memory headroom** — a 6GB-class GPU has very little slack once
   both Ollama models are resident; see the `ollama` service's
   `docker-compose.yml` comments for the mitigations already in place.
+- **No distributed tracing** — metrics (Prometheus/Grafana) are real; the
+  LangSmith/OpenTelemetry tracing half of the observability story is still
+  V4 work, per docs/10.

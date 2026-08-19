@@ -9,10 +9,13 @@ collection (docs/04: "pin the dimension before creating the collection").
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+
+from src.observability.metrics import OLLAMA_INFLIGHT, OLLAMA_MODEL_LATENCY
 
 DEFAULT_BATCH_SIZE = 16
 DEFAULT_TIMEOUT_SECONDS = 300.0
@@ -106,7 +109,17 @@ class OllamaEmbedder:
         reraise=True,
     )
     def _embed_batch(self, batch: list[str]) -> list[EmbeddingResult]:
-        response = self._client.post("/api/embed", json={"model": self._model, "input": batch})
+        OLLAMA_INFLIGHT.labels(call_type="embed").inc()
+        start = time.monotonic()
+        try:
+            response = self._client.post(
+                "/api/embed", json={"model": self._model, "input": batch}
+            )
+        finally:
+            OLLAMA_MODEL_LATENCY.labels(call_type="embed", model=self._model).observe(
+                time.monotonic() - start
+            )
+            OLLAMA_INFLIGHT.labels(call_type="embed").dec()
         response.raise_for_status()
         payload = response.json()
 

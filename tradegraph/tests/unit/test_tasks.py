@@ -26,6 +26,7 @@ import pytest
 from src.core.config import get_settings
 from src.graph import tasks
 from src.models.orm import JobStatus
+from src.observability.metrics import WORKER_JOB_FAILURES
 
 
 class _FakeSession:
@@ -224,10 +225,66 @@ def test_run_research_task_calls_asyncio_run_with_the_async_wrapper(
         called_with.update(kwargs)
 
     monkeypatch.setattr(tasks, "_run_research_job", fake_run_research_job)
+    # A real _record_queue_depth() would open a live connection to whatever
+    # CELERY_BROKER_URL happens to be configured in this environment — a
+    # "unit" test must not depend on a real Redis being reachable.
+    monkeypatch.setattr(tasks, "_record_queue_depth", lambda: None)
 
     tasks.run_research_task(job_id="j1", query="q1", tenant_id="t1", trace_id="trace-1")
 
     assert called_with == {"job_id": "j1", "query": "q1", "tenant_id": "t1", "trace_id": "trace-1"}
+
+
+def test_run_research_task_does_not_record_a_failure_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tasks, "_run_research_job", AsyncMock())
+    monkeypatch.setattr(tasks, "_record_queue_depth", lambda: None)
+    before = WORKER_JOB_FAILURES.labels(queue=tasks.RESEARCH_QUEUE_NAME)._value.get()
+
+    tasks.run_research_task(job_id="j1", query="q1", tenant_id=None, trace_id="t1")
+
+    after = WORKER_JOB_FAILURES.labels(queue=tasks.RESEARCH_QUEUE_NAME)._value.get()
+    assert after == before
+
+
+def test_run_research_task_records_a_failure_and_still_reraises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        tasks, "_run_research_job", AsyncMock(side_effect=RuntimeError("Ollama unreachable"))
+    )
+    monkeypatch.setattr(tasks, "_record_queue_depth", lambda: None)
+    before = WORKER_JOB_FAILURES.labels(queue=tasks.RESEARCH_QUEUE_NAME)._value.get()
+
+    with pytest.raises(RuntimeError, match="Ollama unreachable"):
+        tasks.run_research_task(job_id="j1", query="q1", tenant_id=None, trace_id="t1")
+
+    after = WORKER_JOB_FAILURES.labels(queue=tasks.RESEARCH_QUEUE_NAME)._value.get()
+    assert after == before + 1
+
+
+def test_record_queue_depth_is_a_noop_without_a_configured_broker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_settings = MagicMock(celery_broker_url=None)
+    monkeypatch.setattr(tasks, "get_settings", lambda: fake_settings)
+
+    tasks._record_queue_depth()  # must not raise, must not touch redis at all
+
+
+def test_record_queue_depth_swallows_a_broken_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A metrics read failing (Redis down, a bad URL, whatever) must never be
+    what fails a real research job — this is best-effort telemetry, not a
+    dependency of the pipeline.
+    """
+    fake_settings = MagicMock(celery_broker_url="redis://example.invalid:6379/0")
+    monkeypatch.setattr(tasks, "get_settings", lambda: fake_settings)
+    fake_redis_class = MagicMock()
+    fake_redis_class.from_url.return_value.llen.side_effect = ConnectionError("down")
+    monkeypatch.setattr(tasks.redis, "Redis", fake_redis_class)
+
+    tasks._record_queue_depth()  # must not raise
 
 
 def test_enqueue_research_job_dispatches_via_delay(monkeypatch: pytest.MonkeyPatch) -> None:

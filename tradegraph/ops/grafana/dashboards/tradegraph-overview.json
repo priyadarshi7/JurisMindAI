@@ -1,10 +1,10 @@
 {
-  "title": "TradeGraph Overview",
-  "uid": "tradegraph-overview",
+  "title": "JurisMindAI Overview",
+  "uid": "jurismindai-overview",
   "editable": true,
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "time": { "from": "now-6h", "to": "now" },
   "panels": [
     {
@@ -13,36 +13,38 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "targets": [
-        { "expr": "sum(rate(request_count[5m])) by (endpoint, status)" }
+        { "expr": "sum(rate(http_requests_total[5m])) by (endpoint, status)", "legendFormat": "{{endpoint}} {{status}}" }
       ]
     },
     {
       "id": 2,
-      "title": "API error rate",
+      "title": "API error rate (5xx)",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "targets": [
-        { "expr": "sum(rate(error_rate[5m])) by (service)" }
+        { "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) by (endpoint)", "legendFormat": "{{endpoint}}" }
       ]
     },
     {
       "id": 3,
-      "title": "Retrieval / reranker latency",
+      "title": "Retrieval / reranker latency (p95)",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "targets": [
-        { "expr": "histogram_quantile(0.95, sum(rate(retrieval_latency_bucket[5m])) by (le))", "legendFormat": "retrieval p95" },
-        { "expr": "histogram_quantile(0.95, sum(rate(reranker_latency_bucket[5m])) by (le))", "legendFormat": "reranker p95" }
+        { "expr": "histogram_quantile(0.95, sum(rate(retrieval_latency_seconds_bucket[5m])) by (le))", "legendFormat": "retrieval p95" },
+        { "expr": "histogram_quantile(0.95, sum(rate(reranker_latency_seconds_bucket[5m])) by (le))", "legendFormat": "reranker p95" }
       ]
     },
     {
       "id": 4,
-      "title": "Cache hit rate",
+      "title": "Ollama saturation",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "targets": [
-        { "expr": "sum(rate(cache_hit_rate[5m])) by (cache_layer)" }
-      ]
+        { "expr": "ollama_inflight_requests", "legendFormat": "in-flight {{call_type}}" },
+        { "expr": "histogram_quantile(0.95, sum(rate(ollama_model_latency_seconds_bucket[5m])) by (le, call_type))", "legendFormat": "p95 latency {{call_type}}" }
+      ],
+      "description": "D-30 concurrency check — if in-flight count flattens under the Parallel Research fan-out, branches are serializing behind one Ollama instance instead of running concurrently (docs/06, docs/10)."
     },
     {
       "id": 5,
@@ -50,40 +52,31 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
       "targets": [
-        { "expr": "sum(rate(input_tokens[5m])) by (model)", "legendFormat": "input tokens/s {{model}}" },
-        { "expr": "sum(rate(output_tokens[5m])) by (model)", "legendFormat": "output tokens/s {{model}}" },
-        { "expr": "sum(rate(estimated_cost[5m])) by (model)", "legendFormat": "imputed cost/s {{model}}" }
-      ]
+        { "expr": "sum(rate(llm_input_tokens_total[5m])) by (node)", "legendFormat": "input tokens/s {{node}}" },
+        { "expr": "sum(rate(llm_output_tokens_total[5m])) by (node)", "legendFormat": "output tokens/s {{node}}" },
+        { "expr": "sum(rate(llm_estimated_cost_total[5m])) by (node)", "legendFormat": "imputed cost/s {{node}}" }
+      ],
+      "description": "imputed cost is 0 unless IMPUTED_COST_RATE_PER_1K_TOKENS is set (docs/15 D-26 — a self-hosted model has no real per-token invoice to read a rate off)."
     },
     {
       "id": 6,
-      "title": "Ollama saturation",
+      "title": "Worker job duration (p95) & failures",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "targets": [
-        { "expr": "model_latency", "legendFormat": "model_latency" },
-        { "expr": "concurrency", "legendFormat": "concurrency" }
-      ],
-      "description": "D-30 concurrency check — if this flattens under the Parallel Research fan-out, branches are serializing behind one Ollama instance instead of running concurrently (docs/06, docs/10)."
+        { "expr": "histogram_quantile(0.95, sum(rate(worker_job_duration_seconds_bucket[5m])) by (le))", "legendFormat": "job duration p95" },
+        { "expr": "sum(rate(worker_job_failures_total[5m])) by (queue)", "legendFormat": "failures/s {{queue}}" }
+      ]
     },
     {
       "id": 7,
       "title": "Worker queue depth",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
       "targets": [
-        { "expr": "queue_depth", "legendFormat": "{{service}}" }
-      ]
-    },
-    {
-      "id": 8,
-      "title": "MCP server health & tool latency",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
-      "targets": [
-        { "expr": "tool_latency", "legendFormat": "{{tool}}" },
-        { "expr": "server_health", "legendFormat": "{{server}}" }
-      ]
+        { "expr": "worker_queue_depth", "legendFormat": "{{queue}}" }
+      ],
+      "description": "Read fresh at the start of every task (src/graph/tasks.py::_record_queue_depth), not polled continuously — expect a step function, not a smooth line."
     }
   ]
 }

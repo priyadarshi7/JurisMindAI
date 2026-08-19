@@ -29,9 +29,11 @@ one task's own event loop, every time.
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from pathlib import Path
 
+import redis
 from qdrant_client import QdrantClient
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -45,12 +47,15 @@ from src.core.config import get_settings
 from src.graph.pipeline import ProgressCallback, run_research
 from src.graph.prompt_runner import PromptRunner
 from src.models.orm import JobStatus, ResearchJob
+from src.observability.metrics import WORKER_JOB_DURATION, WORKER_JOB_FAILURES, WORKER_QUEUE_DEPTH
 from src.prompts.loader import PromptRepository
 from src.rag.bm25.sparse_encoder import Bm25SparseEncoder
 from src.rag.embeddings.ollama_embedder import OllamaEmbedder
 from src.rag.hybrid.retriever import HybridRetriever
 from src.rag.reranking.reranker_client import RerankerClient
 from src.rag.vector.qdrant_store import QdrantStore
+
+RESEARCH_QUEUE_NAME = "research"  # must match celery_app.py's task_routes
 
 PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "src" / "prompts"
 
@@ -63,13 +68,40 @@ def enqueue_research_job(*, job_id: str, query: str, tenant_id: str | None, trac
     run_research_task.delay(job_id=job_id, query=query, tenant_id=tenant_id, trace_id=trace_id)
 
 
+def _record_queue_depth() -> None:
+    """A gauge, not a counter — read fresh at the start of every task rather
+    than polled on a timer, since a `--pool=solo` worker only ever has one
+    natural "tick" to hang this off: a task starting. Best-effort: a metrics
+    read must never be what fails a real research job.
+    """
+    settings = get_settings()
+    if settings.celery_broker_url is None:
+        return
+    try:
+        # redis-py's stub types llen()'s return as `Awaitable[int] | int` to
+        # cover its async client too; this is the sync client, always a
+        # plain int at runtime.
+        depth = redis.Redis.from_url(str(settings.celery_broker_url)).llen(RESEARCH_QUEUE_NAME)
+        WORKER_QUEUE_DEPTH.labels(queue=RESEARCH_QUEUE_NAME).set(depth)  # type: ignore[arg-type]
+    except Exception:  # a metrics read is never allowed to fail a real job
+        pass
+
+
 @app.task(  # type: ignore[untyped-decorator]  # celery has no type stubs
     name="tradegraph.research.run"
 )
 def run_research_task(*, job_id: str, query: str, tenant_id: str | None, trace_id: str) -> None:
-    asyncio.run(
-        _run_research_job(job_id=job_id, query=query, tenant_id=tenant_id, trace_id=trace_id)
-    )
+    _record_queue_depth()
+    start = time.monotonic()
+    try:
+        asyncio.run(
+            _run_research_job(job_id=job_id, query=query, tenant_id=tenant_id, trace_id=trace_id)
+        )
+    except Exception:
+        WORKER_JOB_FAILURES.labels(queue=RESEARCH_QUEUE_NAME).inc()
+        raise
+    finally:
+        WORKER_JOB_DURATION.labels(queue=RESEARCH_QUEUE_NAME).observe(time.monotonic() - start)
 
 
 def _make_progress_callback(

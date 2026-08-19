@@ -32,10 +32,11 @@ from __future__ import annotations
 
 import os
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from src.graph.llm_client import LLMCallError, OllamaChatClient
+from src.observability.metrics import RERANKER_LATENCY, render_latest
 
 app = FastAPI(title="JurisMindAI Reranker")
 
@@ -117,6 +118,12 @@ def health() -> dict[str, str]:
     return {"status": "ok", "model": RERANKER_MODEL, "mode": "llm-listwise"}
 
 
+@app.get("/metrics")
+def metrics() -> Response:
+    body, content_type = render_latest()
+    return Response(content=body, media_type=content_type)
+
+
 def _score_once(query: str, passages: list[str]) -> _RerankScores:
     client = OllamaChatClient(base_url=OLLAMA_BASE_URL, model=RERANKER_MODEL)
     try:
@@ -154,6 +161,7 @@ def _score_batch_with_retry(query: str, passages: list[str]) -> tuple[_RerankSco
 
 
 @app.post("/rerank", response_model=RerankResponse)
+@RERANKER_LATENCY.time()
 def rerank(request: RerankRequest) -> RerankResponse:
     by_index: dict[int, float] = {}
     last_error: LLMCallError | None = None

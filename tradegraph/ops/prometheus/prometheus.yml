@@ -1,7 +1,5 @@
 # Metric families and label discipline are fixed by docs/15 D-31 — see the
-# doc for the full list. Scrape targets below are commented out until each
-# service actually exports a /metrics endpoint (V1+); the shape is here so
-# adding one is a one-line uncomment, not a redesign.
+# doc for the full list.
 #
 # ❗ research_id must never appear as a label anywhere in this stack — it
 # belongs in traces and PostgreSQL (docs/10, D-31).
@@ -15,21 +13,31 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9090"]
 
-  # - job_name: tradegraph-api
-  #   metrics_path: /metrics
-  #   static_configs:
-  #     - targets: ["api:8000"]
+  # The API and the research worker run on the HOST (uvicorn / celery run
+  # directly, per README.md's setup steps) — there is no "api"/"worker"
+  # Compose service to reach by container DNS name. Prometheus itself runs
+  # inside a container, so it must reach back out to the host via Docker
+  # Desktop's host.docker.internal, not localhost (that would be this
+  # Prometheus container itself) and not a Compose service name (there
+  # isn't one — see docker-compose.yml, no "api"/"worker" service exists).
+  - job_name: jurismindai-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
 
-  # - job_name: tradegraph-worker
-  #   metrics_path: /metrics
-  #   static_configs:
-  #     - targets: ["worker:9464"]   # settings.prometheus_metrics_port
+  - job_name: jurismindai-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:9464"]   # settings.prometheus_metrics_port
 
-  # - job_name: reranker
-  #   metrics_path: /metrics
-  #   static_configs:
-  #     - targets: ["reranker:8081"]
+  # The reranker DOES run as a real Compose service on this network, so its
+  # container DNS name resolves correctly here, unlike the two above.
+  - job_name: reranker
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["reranker:8081"]
 
-  # Ollama has no native Prometheus endpoint — model_latency/concurrency/
-  # queue metrics (D-31) come from worker-side instrumentation around each
-  # Ollama call, not a direct scrape target.
+  # Ollama has no native Prometheus endpoint — model_latency/concurrency
+  # (D-31) come from worker- and reranker-side instrumentation around each
+  # Ollama call (src/graph/llm_client.py, src/rag/embeddings/ollama_embedder.py),
+  # not a direct scrape target.

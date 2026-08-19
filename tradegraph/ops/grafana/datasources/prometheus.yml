@@ -1,0 +1,13 @@
+# Auto-provisions the Prometheus datasource so `docker compose up` is the
+# whole setup ritual — no manual "add a datasource" click-through in the
+# Grafana UI before the dashboard renders anything. Mounted into
+# /etc/grafana/provisioning/datasources by docker-compose.yml.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

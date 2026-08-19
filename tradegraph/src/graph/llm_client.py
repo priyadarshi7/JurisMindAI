@@ -11,12 +11,15 @@ than hoping the model's prose happens to parse.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import TypeVar
 
 import httpx
 from pydantic import BaseModel, ValidationError
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+
+from src.observability.metrics import OLLAMA_INFLIGHT, OLLAMA_MODEL_LATENCY
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -131,25 +134,33 @@ class OllamaChatClient:
         if max_tokens is not None:
             options["num_predict"] = max_tokens
 
-        response = self._client.post(
-            "/api/chat",
-            json={
-                "model": self._model,
-                "messages": [{"role": "user", "content": prompt}],
-                "format": schema.model_json_schema(),
-                "options": options,
-                # ❗ Qwen3 reasons by default ("thinking" mode) before
-                # emitting content. Discovered live: with a capped
-                # num_predict, thinking alone can consume the whole budget
-                # and content comes back empty. The reasoning trace isn't
-                # part of any node's schema anyway and directly works
-                # against the D-21 token/latency budgets, so it's disabled
-                # for every structured call, not just token-constrained
-                # ones.
-                "think": False,
-                "stream": False,
-            },
-        )
+        OLLAMA_INFLIGHT.labels(call_type="chat").inc()
+        start = time.monotonic()
+        try:
+            response = self._client.post(
+                "/api/chat",
+                json={
+                    "model": self._model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "format": schema.model_json_schema(),
+                    "options": options,
+                    # ❗ Qwen3 reasons by default ("thinking" mode) before
+                    # emitting content. Discovered live: with a capped
+                    # num_predict, thinking alone can consume the whole budget
+                    # and content comes back empty. The reasoning trace isn't
+                    # part of any node's schema anyway and directly works
+                    # against the D-21 token/latency budgets, so it's disabled
+                    # for every structured call, not just token-constrained
+                    # ones.
+                    "think": False,
+                    "stream": False,
+                },
+            )
+        finally:
+            OLLAMA_MODEL_LATENCY.labels(call_type="chat", model=self._model).observe(
+                time.monotonic() - start
+            )
+            OLLAMA_INFLIGHT.labels(call_type="chat").dec()
         response.raise_for_status()
         payload = response.json()
 

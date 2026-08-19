@@ -35,6 +35,7 @@ from dataclasses import dataclass
 
 from qdrant_client.models import Filter
 
+from src.observability.metrics import RETRIEVAL_LATENCY
 from src.rag.bm25.sparse_encoder import Bm25SparseEncoder
 from src.rag.embeddings.ollama_embedder import OllamaEmbedder
 from src.rag.hybrid.fusion import RankedResult, reciprocal_rank_fusion
@@ -101,6 +102,12 @@ class HybridRetriever:
         self._rerank_candidate_limit = rerank_candidate_limit
 
     def search(
+        self, query: str, *, query_filter: Filter | None, top_n: int
+    ) -> list[HybridSearchResult]:
+        with RETRIEVAL_LATENCY.labels(stage="hybrid_retrieval").time():
+            return self._search(query, query_filter=query_filter, top_n=top_n)
+
+    def _search(
         self, query: str, *, query_filter: Filter | None, top_n: int
     ) -> list[HybridSearchResult]:
         dense_vector = self._embedder.embed_query(query).vector

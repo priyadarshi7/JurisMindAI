@@ -18,6 +18,12 @@ from pydantic import BaseModel
 from src.core.config import get_settings
 from src.graph.llm_client import OllamaChatClient
 from src.models.run_manifest import PerCallLLMRecord
+from src.observability.metrics import (
+    LLM_CALL_DURATION,
+    LLM_ESTIMATED_COST,
+    LLM_INPUT_TOKENS,
+    LLM_OUTPUT_TOKENS,
+)
 from src.prompts.loader import PromptRepository
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -89,4 +95,11 @@ class PromptRunner:
             latency_ms=metrics.latency_ms,
             imputed_cost=(total_tokens / 1000) * self._imputed_cost_rate,
         )
+
+        llm_labels = {"node": node, "model": metrics.model}
+        LLM_CALL_DURATION.labels(**llm_labels).observe(metrics.latency_ms / 1000)
+        LLM_INPUT_TOKENS.labels(**llm_labels).inc(metrics.input_tokens)
+        LLM_OUTPUT_TOKENS.labels(**llm_labels).inc(metrics.output_tokens)
+        LLM_ESTIMATED_COST.labels(**llm_labels).inc(record.imputed_cost)
+
         return result, record

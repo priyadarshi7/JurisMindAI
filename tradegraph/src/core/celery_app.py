@@ -11,6 +11,8 @@ deployable consumes.
 from __future__ import annotations
 
 from celery import Celery
+from celery.signals import worker_process_init
+from prometheus_client import start_http_server
 
 from src.core.config import get_settings
 
@@ -34,3 +36,16 @@ app.conf.task_routes = {
 app.conf.task_acks_late = True
 app.conf.task_reject_on_worker_lost = True
 app.conf.worker_prefetch_multiplier = 1
+
+
+@worker_process_init.connect  # type: ignore[untyped-decorator]  # celery has no type stubs
+def _start_metrics_server(**_kwargs: object) -> None:
+    """Unlike the API (uvicorn already serves HTTP), a Celery worker has no
+    request/response cycle to hang a `/metrics` route off — it needs its
+    own tiny HTTP server, started once when the worker process comes up.
+    `--pool=solo` (this project's only worker pool — Windows has no fork,
+    see src/graph/tasks.py's module docstring) means exactly one process,
+    so "once per process" is "once", not "once per fork" racing on the
+    same port.
+    """
+    start_http_server(settings.prometheus_metrics_port)
