@@ -1,0 +1,89 @@
+{
+  "title": "TradeGraph Overview",
+  "uid": "tradegraph-overview",
+  "editable": true,
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "API request rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(request_count[5m])) by (endpoint, status)" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "API error rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(error_rate[5m])) by (service)" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Retrieval / reranker latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(retrieval_latency_bucket[5m])) by (le))", "legendFormat": "retrieval p95" },
+        { "expr": "histogram_quantile(0.95, sum(rate(reranker_latency_bucket[5m])) by (le))", "legendFormat": "reranker p95" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Cache hit rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "sum(rate(cache_hit_rate[5m])) by (cache_layer)" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "LLM tokens & imputed cost",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        { "expr": "sum(rate(input_tokens[5m])) by (model)", "legendFormat": "input tokens/s {{model}}" },
+        { "expr": "sum(rate(output_tokens[5m])) by (model)", "legendFormat": "output tokens/s {{model}}" },
+        { "expr": "sum(rate(estimated_cost[5m])) by (model)", "legendFormat": "imputed cost/s {{model}}" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Ollama saturation",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        { "expr": "model_latency", "legendFormat": "model_latency" },
+        { "expr": "concurrency", "legendFormat": "concurrency" }
+      ],
+      "description": "D-30 concurrency check — if this flattens under the Parallel Research fan-out, branches are serializing behind one Ollama instance instead of running concurrently (docs/06, docs/10)."
+    },
+    {
+      "id": 7,
+      "title": "Worker queue depth",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        { "expr": "queue_depth", "legendFormat": "{{service}}" }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "MCP server health & tool latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        { "expr": "tool_latency", "legendFormat": "{{tool}}" },
+        { "expr": "server_health", "legendFormat": "{{server}}" }
+      ]
+    }
+  ]
+}

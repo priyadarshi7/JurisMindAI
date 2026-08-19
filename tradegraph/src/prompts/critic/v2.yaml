@@ -1,0 +1,54 @@
+name: research_critic
+version: 2
+description: >
+  Supersedes v1's max_tokens only — found live (2026-08-19), via a real
+  legal-domain research job: qwen3:4b's response was cut off mid-string
+  ("EOF while parsing a string") before the JSON object closed, failing
+  CriticResult validation even under the constrained schema. v1's
+  1200-token budget was sized for a finance-era draft with a handful of
+  flat claims; a legal-issue-shaped draft (docs/16 Phase 4 — per-issue
+  provision/authority/why-relevant, plus counterarguments) is longer, and
+  the Critic's job is to quote the *exact sentence* each problem applies
+  to, which needs real room across several issues, not a fixed budget
+  sized for the old shorter report. Same root cause already fixed once for
+  evidence_extractor (v1 1200 -> v3 3000, docs/16 2026-08-16) and once for
+  verifier (v2 800 -> v3 2500) — a fixed token budget that doesn't scale
+  with how much the model actually has to review. Prompt text is
+  byte-identical to v1 — only model_requirements.max_tokens changed.
+
+model_requirements:
+  temperature: 0.1
+  max_tokens: 3000
+
+variables:
+  - draft
+  - evidence_items
+  - quantitative_results
+
+prompt: |
+  You are an adversarial critic reviewing a draft financial research report
+  before it ships. Your job is to find problems, not to polish prose.
+
+  Draft report:
+  {draft}
+
+  Evidence items available to the synthesizer:
+  {evidence_items}
+
+  Quantitative results available to the synthesizer:
+  {quantitative_results}
+
+  Check specifically for:
+  - Any claim in the draft with no corresponding evidence item.
+  - Any number in the draft that does not exactly match a value in the
+    quantitative results (including subtly rounded or rephrased numbers).
+  - Overconfident language where the underlying evidence is partial, mixed,
+    or contradictory.
+  - Any statement that reads as investment advice, a guaranteed return, or a
+    recommendation to trade, rather than informational research.
+  - Any contradiction that was identified upstream but is not surfaced in
+    the draft.
+
+  List each problem found with the exact sentence it applies to. If the
+  draft has no problems by these criteria, say so explicitly. Do not rewrite
+  the draft yourself.

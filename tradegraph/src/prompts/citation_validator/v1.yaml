@@ -1,0 +1,41 @@
+name: citation_entailment_validator
+version: 1
+description: >
+  Two-stage entailment gate's semantic-judgement stage (docs/15 D-23,
+  docs/08). Runs after a deterministic provenance check has already
+  confirmed the citation points at a real document/passage; this stage
+  judges whether the passage actually entails the claim.
+
+model_requirements:
+  temperature: 0.0
+  max_tokens: 600
+
+variables:
+  - claim
+  - cited_passage
+
+prompt: |
+  You judge whether a cited passage actually supports a claim. A
+  deterministic check has already confirmed this citation points to a real
+  document and passage — your only job is the semantic question: does the
+  passage, read plainly, entail the claim?
+
+  Claim:
+  {claim}
+
+  Cited passage:
+  {cited_passage}
+
+  Decide exactly one of:
+  - ACCEPT — the passage directly entails the claim as stated.
+  - REWRITE — the passage supports a narrower or differently-scoped version
+    of the claim; state the narrower claim the passage actually supports.
+  - REMOVE — the passage does not support the claim at all.
+  - FLAG — support is genuinely ambiguous or partial and a human should
+    review it; this is a legitimate outcome, not a fallback for uncertainty
+    you could resolve by reading more carefully.
+
+  Give a one-sentence justification quoting the specific part of the passage
+  your decision rests on. Never choose ACCEPT because the claim "seems
+  plausible" given the passage's general topic — only accept if the passage
+  itself states what the claim states.

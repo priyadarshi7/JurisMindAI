@@ -1,0 +1,131 @@
+# CI chain per docs/12-infrastructure-and-deployment.md (§14):
+#   lint/format -> type checks -> unit tests -> integration tests ->
+#   evaluation smoke tests -> dependency/security scan -> Docker build
+#
+# Evaluation smoke tests (D-28) and integration tests are wired as gated
+# stages now but will no-op until V1 delivers a benchmark subset and
+# docker-compose-backed integration fixtures to run against.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  lint-and-format:
+    name: Lint & format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+
+  type-check:
+    name: Type check
+    runs-on: ubuntu-latest
+    needs: lint-and-format
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install ".[dev]"
+      - run: mypy src apps
+
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    needs: type-check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install ".[dev]"
+      - run: pytest tests/unit -m unit --cov --cov-report=xml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  integration-tests:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install ".[dev]"
+      - name: Start local stack
+        run: docker compose -f docker-compose.yml up -d postgres redis qdrant minio
+      - name: Wait for services
+        run: |
+          for i in $(seq 1 30); do
+            docker compose ps --status running | grep -q postgres && break
+            sleep 2
+          done
+      - run: pytest tests/integration -m integration
+        continue-on-error: true  # no integration tests exist until V1 — see docs/16 Phase 1
+      - name: Tear down local stack
+        if: always()
+        run: docker compose down -v
+
+  evaluation-smoke:
+    name: Evaluation smoke tests (D-28)
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install ".[dev]"
+      - name: Run 20-question benchmark subset
+        run: |
+          if [ -f src/evaluation/benchmark/smoke_subset.jsonl ]; then
+            python -m src.evaluation.run_smoke_suite
+          else
+            echo "No benchmark subset yet (docs/15 D-28/D-14 — authored starting V1). Skipping."
+          fi
+
+  dependency-security-scan:
+    name: Dependency & security scan
+    runs-on: ubuntu-latest
+    needs: lint-and-format
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install ".[dev]"
+      - run: pip-audit -r <(pip freeze) || true  # advisory until V4 hardening gate
+
+  docker-build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    needs: [unit-tests, dependency-security-scan]
+    strategy:
+      matrix:
+        image: [api, worker, reranker]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ${{ matrix.image }} image
+        run: docker build -f docker/${{ matrix.image }}.Dockerfile -t tradegraph-${{ matrix.image }}:ci .

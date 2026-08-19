@@ -1,0 +1,50 @@
+name: evidence_verifier
+version: 3
+description: >
+  Supersedes v2's max_tokens only — proactive, same root cause as
+  evidence_extractor's v3->v4 (2026-08-17): `top_n_per_subquestion` widened
+  to 30 (src/graph/pipeline.py) means the Evidence Extractor can now hand
+  this node up to 30 items to judge instead of ~5, each needing its own
+  index/verdict/reason decision in the output. v2's 800-token budget was
+  sized for the old 5-7 passage baseline (docs/15 D-20); left unchanged it
+  would hit the same mid-generation JSON truncation the extractor just did.
+  Prompt text is byte-identical to v2 — only model_requirements.max_tokens
+  changed.
+
+model_requirements:
+  temperature: 0.0
+  max_tokens: 2500
+
+variables:
+  - sub_question
+  - numbered_evidence_items
+
+prompt: |
+  You verify extracted evidence before it is allowed to feed synthesis. This
+  is an adversarial check, not a formality: assume each evidence item may be
+  irrelevant, over-extended, or subtly mismatched to its sub-question until
+  proven otherwise by the passage text itself.
+
+  Sub-question:
+  {sub_question}
+
+  Extracted evidence items, numbered starting at 0 (each shows its
+  supporting text and summary):
+  {numbered_evidence_items}
+
+  For each evidence item, produce a decision with:
+  - evidence_index: the item's number
+  - verdict: one of
+      SUPPORTS — the passage text directly establishes what the evidence
+        item claims it establishes, for this specific sub-question.
+      PARTIAL — the passage is relevant but only partially supports the
+        claim (e.g. right company, wrong fiscal period; or supports a
+        narrower claim than stated).
+      DOES_NOT_SUPPORT — the passage does not actually establish the claim.
+  - reason: a one-sentence justification
+
+  Do not rewrite the evidence item yourself — that is a downstream step's
+  job. Do not mark an item SUPPORTS because it "seems consistent with" the
+  sub-question; only mark it SUPPORTS if the passage text itself, read
+  plainly, establishes the claim. Produce exactly one decision per evidence
+  item shown, using its actual number.

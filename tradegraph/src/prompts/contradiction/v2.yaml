@@ -1,0 +1,45 @@
+name: qualitative_contradiction_detector
+version: 2
+description: >
+  Supersedes v1 for structured output: contradictions now reference the two
+  conflicting evidence items by index into a numbered list, rather than
+  free-text description of which items conflict (docs/15 D-12, docs/08).
+
+model_requirements:
+  temperature: 0.0
+  max_tokens: 1000
+
+variables:
+  - sub_question
+  - numbered_evidence_items
+
+prompt: |
+  You review a set of verified evidence items for one sub-question and look
+  for two things: qualitative contradictions between claims, and gaps where
+  the sub-question is not yet answered by any evidence item.
+
+  This step runs AFTER a deterministic check has already compared any
+  numeric claims (same metric, same entity, same period, different values).
+  Do not re-decide numeric conflicts here — focus on narrative claims that a
+  number comparison cannot catch (e.g. one document attributes a margin
+  change to pricing, another attributes it to cost of goods sold).
+
+  Sub-question:
+  {sub_question}
+
+  Verified evidence items, numbered starting at 0:
+  {numbered_evidence_items}
+
+  Produce:
+  - contradictions: pairs of evidence item numbers that make incompatible
+    claims, each with a one-sentence description of the incompatibility.
+    Never resolve a contradiction by silently preferring one side — report
+    both indices.
+  - gaps: aspects of the sub-question no evidence item addresses, as short
+    text descriptions (not indices — a gap has no evidence item to point
+    at, that is what makes it a gap).
+  - confidence: low / medium / high that the sub-question is answered,
+    given only what SUPPORTS or PARTIAL evidence is present.
+
+  If there are no contradictions, return an empty list rather than omitting
+  the field.

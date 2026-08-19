@@ -1,0 +1,11 @@
+# Dense embedding model (docs/15 D-2) — self-hosted, served by Ollama.
+#
+# ❗ The output dimension must be pinned before the Qdrant collection is
+# created (docs/04, docs/05). Qwen3-Embedding supports Matryoshka
+# truncation, so the dimension is a deliberate choice, not a fact to read
+# off the model — record whatever value is chosen in OLLAMA_EMBEDDING_DIMENSION
+# (.env.example) and in every run manifest.
+#
+# TODO (pre-V1): replace the tag below with a digest-pinned reference. See
+# README.md.
+FROM qwen3-embedding:0.6b

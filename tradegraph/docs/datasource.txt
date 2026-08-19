@@ -1,0 +1,16 @@
+3. Final RAG Data Sources
+Source What we fetch Role
+SEC EDGAR 10-K, 10-Q, 8-K and company filings Primary authoritative corpus — V1
+Company investor relations Annual reports, earnings releases, presentations, shareholder materials First-party context — V1
+Earnings materials/transcripts Prepared remarks + management/analyst Q&A Qualitative reasoning — V1/V2
+Financial news Relevant articles from permitted/licensed sources Market/event context — V2
+Historical documents Prior filings, reports, transcripts and versioned documents Longitudinal research
+Market prices/volume OHLCV, returns, volume Quantitative tool input, not traditional RAG
+Macro data Rates, CPI, GDP etc. Quant/data layer; optionally summarized into RAG
+V1 recommendation: begin with a controlled corpus of SEC + first-party investor-relations + earnings materials/transcripts. Add
+live news only after core retrieval evaluation is stable.
+4. Example Corpus
+NVIDIA ■■■ 2025 10-K ■■■ 2025 Q1/Q2/Q3 10-Q ■■■ relevant 8-Ks ■■■ earnings release ■■■ investor presentation
+■■■ earnings-call transcript Repeat the same controlled structure for a small benchmark set of companies.
+Every document gets a stable ID, source/provenance, company/ticker, document type, period/date, content hash, version and
+ingestion timestamp.

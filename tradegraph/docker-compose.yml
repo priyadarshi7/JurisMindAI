@@ -1,0 +1,194 @@
+# Local development stack (docs/12-infrastructure-and-deployment.md).
+#
+# Runs the SAME software as production wherever possible — MinIO, Ollama, and
+# the reranker service are not emulations, they are the real components run
+# locally (docs/12, "What local-first serving changes"). Only PostgreSQL,
+# Redis, and Qdrant differ from production in who operates them.
+#
+# Requires a .env file (copy .env.example -> .env and fill in local values;
+# .env is git-ignored and never committed).
+
+name: tradegraph
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tradegraph}
+      POSTGRES_USER: ${POSTGRES_USER:-tradegraph}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tradegraph}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tradegraph}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    ports:
+      - "6333:6333"   # REST
+      - "6334:6334"   # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-tradegraph}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-tradegraph123}
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Model serving (docs/02, docs/15 D-1/D-2/D-30). Requires a GPU-capable host
+  # to be representative of production latency — see docs/12's caveat on
+  # measuring D-30 concurrency on real hardware, not a CPU-only laptop.
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    environment:
+      # This machine's card is a 6GB laptop GPU (RTX 4050, 6141MiB total per
+      # nvidia-smi) with ~2.3GB already claimed by the OS/desktop before
+      # Ollama starts, and both models this project uses (qwen3:4b +
+      # qwen3-embedding:0.6b) are kept resident together during a job
+      # (~5.6GB). Found live (2026-08-19): Ollama's internal prompt-reuse
+      # cache assumes an 8192MiB budget regardless of actual card size, and
+      # accumulates across the dozens of sequential LLM calls one research
+      # job makes (reranker batches, evidence extraction, verification,
+      # critic, ...). Once it grows past the real physical ceiling, the
+      # internal llama-server child process hits a genuine CUDA OOM and
+      # dies mid-request (log: "llama-server completion error ... EOF"),
+      # which Ollama surfaces upward as a bare 500. Flash attention + an
+      # 8-bit KV cache cut that cache's per-token memory footprint several
+      # times over, giving real headroom back on a card this small.
+      OLLAMA_FLASH_ATTENTION: "1"
+      OLLAMA_KV_CACHE_TYPE: q8_0
+      # Serializes requests through one GPU slot instead of opening several
+      # concurrent KV-cache allocations at once — this workload has no
+      # need for parallel decoding (one Celery worker, one job at a time)
+      # so there's no throughput cost, only less peak VRAM pressure.
+      OLLAMA_NUM_PARALLEL: "1"
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./ops/ollama:/ops/ollama:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/11434' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Reranker — deliberately NOT served by Ollama (no rerank endpoint; D-30).
+  # Real LLM-based listwise reranking (apps/reranker/main.py), reusing the
+  # Ollama chat model rather than a dedicated cross-encoder runtime — see
+  # that file's docstring for why. Needs OLLAMA_BASE_URL reachable from
+  # inside this container, not localhost (the ollama service, not this
+  # container's own loopback).
+  reranker:
+    build:
+      context: .
+      dockerfile: docker/reranker.Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:4b}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Citation knowledge graph (NyayaGraph pivot, docs/16 Phase 1). Holds only
+  # the citation graph (Case -[:CITES|INTERPRETS|FOLLOWS|DISTINGUISHES|
+  # REFERS_TO]-> Case|Section|Article) — PostgreSQL stays the system of
+  # record for documents/chunks/evidence/claims/citations. Graph node ids
+  # are the same UUIDs as the corresponding Postgres rows, never a separate
+  # identity scheme (src/rag/graph/).
+  neo4j:
+    image: neo4j:5.24-community
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-tradegraph123}
+      # Single small instance, matching the project's "simplest viable
+      # option first" discipline (D-30) — no clustering/replicas for a
+      # curated corpus this size.
+      NEO4J_server_memory_heap_max__size: 512m
+    ports:
+      - "7474:7474"   # Browser / HTTP
+      - "7687:7687"   # Bolt
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/7687' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # -- Metrics stack (D-31) --------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./ops/prometheus:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./ops/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  minio_data:
+  ollama_data:
+  prometheus_data:
+  grafana_data:
+  neo4j_data:

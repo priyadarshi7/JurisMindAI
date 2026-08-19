@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+/* Design tokens (JurisMindAI premium redesign) — a refined dark-ink palette
+   with a single restrained gold accent, deliberately not the default
+   Tailwind slate/sky pairing every AI-chat clone uses. Tailwind v4 turns
+   each --color- and --font- token below into real utilities (bg-surface-1,
+   text-ink-1, border-hairline, font-serif, ...), so components reference
+   these by name instead of hardcoding hex/slate values — one place to
+   retune the whole system.
+*/
+@theme {
+  --color-ink-0: #f2efe6; /* primary text */
+  --color-ink-1: #a8a196; /* secondary text */
+  --color-ink-2: #6f695f; /* tertiary / disabled text */
+
+  --color-surface-0: #0a0a0a; /* app background */
+  --color-surface-1: #131211; /* raised panel */
+  --color-surface-2: #1c1a18; /* hover / active surface */
+
+  --color-hairline: rgb(255 255 255 / 8%);
+  --color-hairline-strong: rgb(255 255 255 / 16%);
+
+  --color-accent: #c9a44c;
+  --color-accent-muted: #8a7238;
+  --color-accent-soft: rgb(201 164 76 / 12%);
+
+  --font-serif: "Iowan Old Style", "Source Serif Pro", Georgia, Cambria, "Times New Roman", serif;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+}
+
+body {
+  @apply antialiased;
+  background: var(--color-surface-0);
+  color: var(--color-ink-0);
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1; /* tabular numerals — dates/counts stay aligned */
+}
+
+::selection {
+  background: var(--color-accent-soft);
+  color: var(--color-ink-0);
+}
+
+/* Subtle, deliberate motion only — no bouncy/playful easing anywhere. */
+* {
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}

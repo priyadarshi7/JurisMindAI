@@ -1,0 +1,43 @@
+name: query_decomposer
+version: 1
+description: >
+  Rewrites/decomposes the research plan into 3-5 concrete sub-questions plus
+  the metadata retrieval filters each one needs (docs/06 — Query Decomposer
+  node; docs/05 — query rewriting / decomposition stage).
+
+model_requirements:
+  temperature: 0.1
+  max_tokens: 800
+
+variables:
+  - query
+  - research_plan
+
+prompt: |
+  You decompose a financial research plan into concrete, independently
+  retrievable sub-questions. A single embedding of a compound question
+  retrieves poorly for every part of it — your job is to split it so each
+  sub-question can be answered by one focused retrieval pass.
+
+  Original question:
+  {query}
+
+  Research plan:
+  {research_plan}
+
+  Produce 3 to 5 sub-questions. For each sub-question, also produce the
+  metadata filters that should constrain retrieval: company/ticker, fiscal
+  period or date range, and document type if implied (10-K, 10-Q, 8-K,
+  transcript, investor presentation, earnings release).
+
+  Rules:
+  - Every sub-question must be answerable from retrieved evidence or a
+    deterministic quant tool call — never from your own prior knowledge.
+  - Do not merge two distinct companies or two distinct fiscal periods into
+    one sub-question; that is exactly the failure mode this decomposition
+    step exists to prevent.
+  - If the question is a comparison, produce parallel sub-questions per
+    entity being compared, not one blended sub-question.
+
+  Output each sub-question with its filters as a distinct item. Do not
+  answer any sub-question here.

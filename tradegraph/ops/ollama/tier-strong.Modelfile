@@ -1,0 +1,10 @@
+# "Strong" tier (docs/15 D-1) — Verifier, Critic, Synthesizer, Citation
+# Validator. These nodes gate what ships (entailment judgement, adversarial
+# review, final report writing), so quality is weighted over throughput.
+#
+# TODO (D-30, pre-V1): replace the tag below with a digest-pinned reference
+# once the hardware benchmark picks the exact parameter size. See README.md.
+FROM qwen3:32b
+
+PARAMETER temperature 0.0
+PARAMETER num_ctx 16384

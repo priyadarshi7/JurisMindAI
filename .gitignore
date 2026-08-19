@@ -1,0 +1,39 @@
+# Secrets / local environment — never commit (docs/11, docs/12 §12)
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Node / frontend
+node_modules/
+dist/
+.next/
+
+# Docker / local data volumes (compose uses named volumes, but guard anyway)
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Ollama model pulls if ever cached locally outside the container
+ops/ollama/*.bin
+
+# Alembic — generated at runtime, not the versions/ directory itself
+!migrations/versions/.gitkeep

@@ -1,0 +1,44 @@
+name: qualitative_contradiction_detector
+version: 1
+description: >
+  Second-stage qualitative contradiction check, run only after the
+  deterministic numeric-conflict check (docs/15 D-12, docs/08). Finds
+  opposing narrative claims that a numeric comparison cannot catch, and also
+  flags evidence gaps for the sufficiency gate (docs/06).
+
+model_requirements:
+  temperature: 0.0
+  max_tokens: 1000
+
+variables:
+  - sub_question
+  - evidence_items
+
+prompt: |
+  You review a set of verified evidence items for one sub-question and look
+  for two things: qualitative contradictions between claims, and gaps where
+  the sub-question is not yet answered by any evidence item.
+
+  This step runs AFTER a deterministic check has already compared any
+  numeric claims (same metric, same entity, same period, different values).
+  Do not re-decide numeric conflicts here — focus on narrative claims that a
+  number comparison cannot catch (e.g. one document attributes a margin
+  change to pricing, another attributes it to cost of goods sold).
+
+  Sub-question:
+  {sub_question}
+
+  Verified evidence items:
+  {evidence_items}
+
+  Report:
+  - CONTRADICTIONS: pairs of evidence items that make incompatible claims,
+    with a one-sentence description of the incompatibility. Never resolve a
+    contradiction by silently preferring one side — report both.
+  - GAPS: aspects of the sub-question no evidence item addresses.
+  - CONFIDENCE: a qualitative confidence level (low / medium / high) that
+    the sub-question is answered, given only what SUPPORTS or PARTIAL
+    evidence is present.
+
+  If there are no contradictions, say so explicitly rather than omitting the
+  section.

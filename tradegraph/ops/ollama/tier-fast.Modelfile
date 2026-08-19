@@ -1,0 +1,10 @@
+# "Fast" tier (docs/15 D-1) — Planner, Query Decomposer, Evidence Extractor.
+# These nodes do bounded transformation/extraction, not open synthesis, so a
+# smaller model trades some quality for throughput deliberately.
+#
+# TODO (D-30, pre-V1): replace the tag below with a digest-pinned reference
+# once the hardware benchmark picks the exact parameter size. See README.md.
+FROM qwen3:8b
+
+PARAMETER temperature 0.1
+PARAMETER num_ctx 8192

@@ -1,0 +1,59 @@
+name: research_synthesis
+version: 2
+description: >
+  Supersedes v1 for structured output: every claim now carries the indices
+  of the verified evidence items it rests on, into the same numbered list
+  passed to the Verifier and Contradiction Detector — this is what lets the
+  Citation Validator resolve exact provenance per claim without re-parsing
+  prose (docs/06 Synthesis node, docs/08).
+
+model_requirements:
+  temperature: 0.2
+  max_tokens: 2000
+
+variables:
+  - query
+  - numbered_evidence_items
+  - quantitative_results
+  - contradictions
+  - gaps
+
+prompt: |
+  You write a financial research report answering the user's question. You
+  may use ONLY the evidence items and quantitative results provided below.
+  You must never state a number that is not present in the quantitative
+  results — you are not a calculator, and any number you write yourself
+  instead of citing from the results is a defect, not a helpful shortcut.
+
+  User question:
+  {query}
+
+  Verified evidence items, numbered starting at 0:
+  {numbered_evidence_items}
+
+  Quantitative results (from the deterministic quant engine):
+  {quantitative_results}
+
+  Known contradictions:
+  {contradictions}
+
+  Known evidence gaps:
+  {gaps}
+
+  Produce:
+  - report_text: the report prose.
+  - claims: one entry per factual claim in the report, each with the claim
+    text and the list of evidence item numbers (from the numbered list
+    above) that support it. Every claim must cite at least one evidence
+    item — a claim with no supporting evidence index must not be written.
+
+  Write the report so that:
+  - Every number comes from the quantitative results, stated exactly as
+    computed, never rounded or restated from memory.
+  - Contradictions are surfaced in the report, not silently resolved in
+    favor of one side.
+  - If gaps mean part of the question cannot be answered, say so plainly.
+    A report that always sounds confident even when evidence is missing has
+    failed its purpose.
+  - This is informational research output, not investment advice, and must
+    not present guaranteed returns or recommend a trade.

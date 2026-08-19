@@ -1,0 +1,44 @@
+name: evidence_verifier
+version: 2
+description: >
+  Supersedes v1 for structured output: verdicts now reference their
+  evidence item by index into a numbered list rather than being matched
+  back to free text after the fact (docs/06 Verification node).
+
+model_requirements:
+  temperature: 0.0
+  max_tokens: 800
+
+variables:
+  - sub_question
+  - numbered_evidence_items
+
+prompt: |
+  You verify extracted evidence before it is allowed to feed synthesis. This
+  is an adversarial check, not a formality: assume each evidence item may be
+  irrelevant, over-extended, or subtly mismatched to its sub-question until
+  proven otherwise by the passage text itself.
+
+  Sub-question:
+  {sub_question}
+
+  Extracted evidence items, numbered starting at 0 (each shows its
+  supporting text and summary):
+  {numbered_evidence_items}
+
+  For each evidence item, produce a decision with:
+  - evidence_index: the item's number
+  - verdict: one of
+      SUPPORTS — the passage text directly establishes what the evidence
+        item claims it establishes, for this specific sub-question.
+      PARTIAL — the passage is relevant but only partially supports the
+        claim (e.g. right company, wrong fiscal period; or supports a
+        narrower claim than stated).
+      DOES_NOT_SUPPORT — the passage does not actually establish the claim.
+  - reason: a one-sentence justification
+
+  Do not rewrite the evidence item yourself — that is a downstream step's
+  job. Do not mark an item SUPPORTS because it "seems consistent with" the
+  sub-question; only mark it SUPPORTS if the passage text itself, read
+  plainly, establishes the claim. Produce exactly one decision per evidence
+  item shown, using its actual number.

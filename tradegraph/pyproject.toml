@@ -1,0 +1,155 @@
+[project]
+name = "tradegraph"
+version = "0.1.0"
+description = "TradeGraph — Agentic Financial Research & Intelligence Platform"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { text = "Proprietary" }
+
+dependencies = [
+    # API
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "python-multipart>=0.0.12",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sse-starlette>=2.1",
+    "python-jose[cryptography]>=3.3",
+    # LLM / RAG / agent
+    "langchain>=0.3",
+    "langchain-community>=0.3",
+    "langchain-ollama>=0.2",
+    "langgraph>=0.2",
+    "langgraph-checkpoint-postgres>=2.0",
+    "langsmith>=0.1",
+    # Retrieval
+    # Pinned to match the server image in docker-compose.yml
+    # (qdrant/qdrant:v1.12.4) — Qdrant requires major versions to match and
+    # minor version drift <=1 between client and server. Bump both together,
+    # deliberately, not independently.
+    "qdrant-client>=1.12,<1.13",
+    "fastembed>=0.4",           # D-3 — Qdrant-native BM25 sparse vectors
+    "neo4j>=5.24",               # citation knowledge graph (NyayaGraph pivot)
+    "tiktoken>=0.8",            # approximate token counting for chunking (D-19)
+    "beautifulsoup4>=4.12",     # filing HTML parsing/cleaning
+    "lxml>=5.3",
+    "pypdf>=5.0",                # Constitution/Act PDF text extraction (NyayaGraph pivot)
+    # Data
+    "sqlalchemy[asyncio]>=2.0",
+    "alembic>=1.13",
+    "asyncpg>=0.30",
+    "psycopg[binary]>=3.2",
+    "redis>=5.2",
+    "celery[redis]>=5.4",
+    "boto3>=1.35",              # MinIO/S3 client
+    # Quant
+    "polars>=1.12",
+    "pandas>=2.2",
+    "numpy>=2.1",
+    # Observability
+    "opentelemetry-api>=1.27",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-instrumentation-fastapi>=0.48b0",
+    "opentelemetry-exporter-otlp>=1.27",
+    "prometheus-client>=0.21",
+    # Config / prompts
+    "pyyaml>=6.0",
+    "httpx>=0.27",
+    "tenacity>=9.0",
+    "structlog>=24.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "types-pyyaml>=6.0",
+    "types-boto3>=1.0",
+    "httpx>=0.27",
+    "pip-audit>=2.7",
+    "moto[s3]>=5.0",
+    "respx>=0.21",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["src*", "apps*"]
+
+# ---------------------------------------------------------------------------
+# Lint / format — ruff replaces black + isort + flake8
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "apps", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle / pyflakes
+    "I",             # isort
+    "UP",            # pyupgrade
+    "B",             # bugbear
+    "C4",            # comprehensions
+    "SIM",           # simplify
+    "RUF",           # ruff-specific
+]
+ignore = ["E501"]  # line length handled by formatter
+
+[tool.ruff.lint.isort]
+known-first-party = ["src", "apps"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection idiom calls Depends()/Query()/etc. in
+# argument defaults by design — B008 exists for actual mutable-default bugs,
+# not this. https://docs.astral.sh/ruff/rules/function-call-in-default-argument/
+extend-immutable-calls = ["fastapi.Depends", "fastapi.params.Depends"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+# ---------------------------------------------------------------------------
+# Type checking
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+packages = ["src", "apps"]
+strict = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["celery.*", "langgraph.*", "langchain.*", "langchain_ollama.*", "qdrant_client.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "unit: fast, no external services (in-memory/mocked equivalents only)",
+    "integration: requires a real external service — docker-compose or live network",
+]
+filterwarnings = [
+    # pytest resets the warnings filter per test, which silently undoes a
+    # module-level warnings.filterwarnings() call — must be set here to
+    # actually take effect. See src/rag/ingestion/parser.py for why this
+    # specific warning is expected and safe to ignore.
+    "ignore::bs4.XMLParsedAsHTMLWarning",
+    # Qdrant client/server version pin is deliberate (see pyproject
+    # dependency comment) — silence the compatibility warning it emits
+    # rather than fixing what isn't broken.
+    "ignore:Qdrant client version .* is incompatible with server version:UserWarning",
+]
+
+[tool.coverage.run]
+source = ["src", "apps"]
+omit = ["*/tests/*"]

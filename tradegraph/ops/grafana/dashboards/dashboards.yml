@@ -1,0 +1,13 @@
+# Grafana dashboard provisioning config. Mounted into
+# /etc/grafana/provisioning/dashboards by docker-compose.yml.
+apiVersion: 1
+
+providers:
+  - name: tradegraph
+    orgId: 1
+    folder: TradeGraph
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards
